@@ -15,7 +15,7 @@ from database import (
     get_all_snapshots_for_plotting,
     compare_snapshots
 )
-from csv_parser import parse_instagram_csv, analyze_follow_status
+from csv_parser import parse_instagram_csv, parse_filename, analyze_follow_status
 from plotting import (
     create_follower_trend_plot,
     create_comparison_pie_chart,
@@ -137,18 +137,16 @@ async def process_csv_upload(message: discord.Message, attachment: discord.Attac
     async with message.channel.typing():
         try:
             content = await attachment.read()
-            records, metadata = parse_instagram_csv(content)
+            records, metadata = parse_instagram_csv(content, attachment.filename)
 
             if not records:
                 await message.reply("❌ Couldn't parse that CSV. Make sure it's an Instagram export!")
                 return
 
-            # Detect file type from filename or content
-            filename_lower = attachment.filename.lower()
-            if 'following' in filename_lower:
-                file_type = 'following'
-            else:
-                file_type = 'followers'
+            # Use detected type from filename, or fallback to simple detection
+            file_info = parse_filename(attachment.filename)
+            file_type = file_info['file_type']
+            ig_username = file_info.get('ig_username') or metadata.get('ig_username')
 
             user_id = message.author.id
             guild_id = get_guild_id(message)
@@ -165,10 +163,11 @@ async def process_csv_upload(message: discord.Message, attachment: discord.Attac
             analysis = analyze_follow_status(records)
 
             # Build response
-            embed = discord.Embed(
-                title=f"✅ Got it! Processed your {file_type}",
-                color=discord.Color.green()
-            )
+            title = f"✅ Got it! Processed your {file_type}"
+            if ig_username:
+                title = f"✅ @{ig_username}'s {file_type}"
+
+            embed = discord.Embed(title=title, color=discord.Color.green())
 
             embed.add_field(name="📊 Total", value=f"**{metadata['total']}**", inline=True)
             embed.add_field(name="🤝 Mutual", value=f"**{metadata['following_back']}**", inline=True)
@@ -880,7 +879,77 @@ async def search_user(interaction: discord.Interaction, username: str):
     await interaction.followup.send(embed=embed)
 
 
+@bot.tree.command(name="demo", description="Load sample data to try out the bot")
+@app_commands.dm_permission(True)
+async def demo(interaction: discord.Interaction):
+    """Load the sample CSV file to demonstrate bot features."""
+    await interaction.response.defer(thinking=True)
+
+    # Path to sample CSV
+    sample_path = os.path.join(os.path.dirname(__file__), "IGFollow_rajj__singhh_287_followers.csv")
+
+    if not os.path.exists(sample_path):
+        await interaction.followup.send("❌ Sample file not found. Upload your own CSV!")
+        return
+
+    try:
+        with open(sample_path, 'rb') as f:
+            content = f.read()
+
+        filename = "IGFollow_rajj__singhh_287_followers.csv"
+        records, metadata = parse_instagram_csv(content, filename)
+
+        if not records:
+            await interaction.followup.send("❌ Couldn't parse sample file.")
+            return
+
+        file_info = parse_filename(filename)
+        file_type = file_info['file_type']
+        ig_username = file_info.get('ig_username')
+
+        guild_id = get_guild_id(interaction)
+
+        # Save snapshot
+        snapshot_id = await save_snapshot(
+            interaction.user.id,
+            guild_id,
+            filename,
+            records,
+            file_type
+        )
+
+        # Analyze
+        analysis = analyze_follow_status(records)
+
+        embed = discord.Embed(
+            title=f"🎉 Demo loaded: @{ig_username}'s {file_type}",
+            description="Sample data loaded! Try these commands:",
+            color=discord.Color.green()
+        )
+
+        embed.add_field(name="📊 Total Followers", value=f"**{metadata['total']}**", inline=True)
+        embed.add_field(name="🤝 Mutual", value=f"**{metadata['following_back']}**", inline=True)
+        embed.add_field(name="👀 Fans", value=f"**{metadata['not_following_back']}**", inline=True)
+
+        embed.add_field(
+            name="🚀 Try These Commands",
+            value=(
+                "• `/stats` - See the full dashboard\n"
+                "• `/breakdown` - Pie chart of relationships\n"
+                "• `/nonfollowers` - List of fans\n"
+                "• `/search <username>` - Find someone"
+            ),
+            inline=False
+        )
+
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error loading demo: {str(e)}")
+
+
 @bot.tree.command(name="help", description="Show all available commands")
+@app_commands.dm_permission(True)
 async def help_command(interaction: discord.Interaction):
     """Show help information."""
     embed = discord.Embed(
@@ -899,10 +968,21 @@ async def help_command(interaction: discord.Interaction):
         ("🥧 /breakdown", "View pie chart of follow relationships"),
         ("📜 /history", "View your upload history"),
         ("🔍 /search", "Search for a specific username"),
+        ("🎉 /demo", "Load sample data to try the bot"),
     ]
 
     for cmd, desc in commands_list:
         embed.add_field(name=cmd, value=desc, inline=False)
+
+    embed.add_field(
+        name="💬 DM Commands",
+        value=(
+            "You can also DM me directly!\n"
+            "• Just drop a CSV file\n"
+            "• Type `stats`, `changes`, `history`"
+        ),
+        inline=False
+    )
 
     embed.add_field(
         name="📝 How to Get Your Data",
