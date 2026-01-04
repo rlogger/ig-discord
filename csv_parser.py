@@ -1,9 +1,50 @@
 import pandas as pd
 import io
+import re
 from typing import Optional
 
 
-def parse_instagram_csv(content: bytes | str) -> tuple[list[dict], dict]:
+def parse_filename(filename: str) -> dict:
+    """
+    Parse Instagram export filename to extract metadata.
+
+    Supports formats like:
+    - IGFollow_rajj__singhh_287_followers.csv
+    - followers_1.csv
+    - following.csv
+
+    Returns:
+        dict with 'ig_username', 'count', 'file_type'
+    """
+    result = {
+        'ig_username': None,
+        'count': None,
+        'file_type': 'followers'  # default
+    }
+
+    filename_lower = filename.lower()
+
+    # Detect file type
+    if 'following' in filename_lower:
+        result['file_type'] = 'following'
+    elif 'follower' in filename_lower:
+        result['file_type'] = 'followers'
+
+    # Try to parse IGFollow format: IGFollow_username_count_type.csv
+    igfollow_match = re.match(
+        r'IGFollow_(.+?)_(\d+)_(followers|following)\.csv',
+        filename,
+        re.IGNORECASE
+    )
+    if igfollow_match:
+        result['ig_username'] = igfollow_match.group(1)
+        result['count'] = int(igfollow_match.group(2))
+        result['file_type'] = igfollow_match.group(3).lower()
+
+    return result
+
+
+def parse_instagram_csv(content: bytes | str, filename: str = None) -> tuple[list[dict], dict]:
     """
     Parse Instagram follower/following CSV file.
 
@@ -66,6 +107,12 @@ def parse_instagram_csv(content: bytes | str) -> tuple[list[dict], dict]:
         'not_following_back': not_following_count,
         'verified': verified_count
     }
+
+    # Add filename metadata if provided
+    if filename:
+        file_meta = parse_filename(filename)
+        metadata['ig_username'] = file_meta['ig_username']
+        metadata['detected_type'] = file_meta['file_type']
 
     return records, metadata
 
