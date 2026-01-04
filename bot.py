@@ -1,0 +1,617 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+import os
+from dotenv import load_dotenv
+import asyncio
+from io import BytesIO
+
+from database import (
+    init_db,
+    save_snapshot,
+    get_snapshots,
+    get_snapshot_records,
+    get_latest_snapshot,
+    get_all_snapshots_for_plotting,
+    compare_snapshots
+)
+from csv_parser import parse_instagram_csv, analyze_follow_status
+from plotting import (
+    create_follower_trend_plot,
+    create_comparison_pie_chart,
+    create_change_bar_chart,
+    create_growth_rate_plot,
+    create_summary_dashboard
+)
+
+load_dotenv()
+
+TOKEN = os.getenv('DISCORD_TOKEN')
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+
+@bot.event
+async def on_ready():
+    """Initialize bot and sync commands."""
+    await init_db()
+    try:
+        synced = await bot.tree.sync()
+        print(f'Synced {len(synced)} command(s)')
+    except Exception as e:
+        print(f'Failed to sync commands: {e}')
+    print(f'{bot.user} is now running!')
+
+
+@bot.tree.command(name="upload", description="Upload your Instagram followers/following CSV file")
+@app_commands.describe(
+    file="Your Instagram CSV export file",
+    file_type="Type of data: 'followers' or 'following'"
+)
+@app_commands.choices(file_type=[
+    app_commands.Choice(name="Followers (people who follow you)", value="followers"),
+    app_commands.Choice(name="Following (people you follow)", value="following")
+])
+async def upload_csv(
+    interaction: discord.Interaction,
+    file: discord.Attachment,
+    file_type: str = "followers"
+):
+    """Upload and process Instagram CSV file."""
+    await interaction.response.defer(thinking=True)
+
+    if not file.filename.endswith('.csv'):
+        await interaction.followup.send("❌ Please upload a CSV file.")
+        return
+
+    try:
+        content = await file.read()
+        records, metadata = parse_instagram_csv(content)
+
+        if not records:
+            await interaction.followup.send("❌ No valid records found in the CSV file.")
+            return
+
+        # Get previous snapshot for comparison
+        prev_snapshot = await get_latest_snapshot(
+            interaction.user.id,
+            interaction.guild_id,
+            file_type
+        )
+
+        # Save new snapshot
+        snapshot_id = await save_snapshot(
+            interaction.user.id,
+            interaction.guild_id,
+            file.filename,
+            records,
+            file_type
+        )
+
+        # Analyze relationships
+        analysis = analyze_follow_status(records)
+
+        # Build response embed
+        embed = discord.Embed(
+            title=f"📊 {file_type.title()} Upload Successful",
+            color=discord.Color.green()
+        )
+
+        embed.add_field(
+            name="📈 Total Records",
+            value=f"**{metadata['total']}** accounts",
+            inline=True
+        )
+
+        if file_type == "followers":
+            embed.add_field(
+                name="🤝 You Follow Back",
+                value=f"**{metadata['following_back']}** accounts",
+                inline=True
+            )
+            embed.add_field(
+                name="👀 You Don't Follow Back",
+                value=f"**{metadata['not_following_back']}** accounts",
+                inline=True
+            )
+
+        embed.add_field(
+            name="✅ Verified Accounts",
+            value=f"**{metadata['verified']}** accounts",
+            inline=True
+        )
+
+        # Add comparison if previous data exists
+        if prev_snapshot:
+            comparison = await compare_snapshots(prev_snapshot['id'], snapshot_id)
+
+            change_text = []
+            if comparison['gained_count'] > 0:
+                change_text.append(f"📈 +{comparison['gained_count']} new")
+            if comparison['lost_count'] > 0:
+                change_text.append(f"📉 -{comparison['lost_count']} lost")
+
+            net = comparison['net_change']
+            net_emoji = "🟢" if net > 0 else "🔴" if net < 0 else "⚪"
+            change_text.append(f"{net_emoji} Net: {net:+d}")
+
+            embed.add_field(
+                name="📊 Changes Since Last Upload",
+                value="\n".join(change_text) if change_text else "No changes",
+                inline=False
+            )
+
+            # Show some gained/lost usernames
+            if comparison['gained']:
+                gained_names = [r['username'] for r in comparison['gained'][:5]]
+                more = len(comparison['gained']) - 5
+                gained_text = ", ".join(f"@{n}" for n in gained_names)
+                if more > 0:
+                    gained_text += f" (+{more} more)"
+                embed.add_field(
+                    name="🆕 New Followers",
+                    value=gained_text,
+                    inline=False
+                )
+
+            if comparison['lost']:
+                lost_names = [r['username'] for r in comparison['lost'][:5]]
+                more = len(comparison['lost']) - 5
+                lost_text = ", ".join(f"@{n}" for n in lost_names)
+                if more > 0:
+                    lost_text += f" (+{more} more)"
+                embed.add_field(
+                    name="👋 Lost Followers",
+                    value=lost_text,
+                    inline=False
+                )
+
+        embed.set_footer(text=f"Snapshot ID: {snapshot_id} | Use /stats for detailed analysis")
+
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error processing file: {str(e)}")
+
+
+@bot.tree.command(name="stats", description="View your follower statistics and trends")
+async def stats(interaction: discord.Interaction):
+    """Show statistics and visualizations."""
+    await interaction.response.defer(thinking=True)
+
+    snapshots = await get_all_snapshots_for_plotting(
+        interaction.user.id,
+        interaction.guild_id
+    )
+
+    if not snapshots:
+        await interaction.followup.send(
+            "❌ No data found! Upload a CSV file first using `/upload`"
+        )
+        return
+
+    # Get latest snapshot and its records
+    latest = await get_latest_snapshot(
+        interaction.user.id,
+        interaction.guild_id,
+        "followers"
+    )
+
+    if latest:
+        records = await get_snapshot_records(latest['id'])
+        analysis = analyze_follow_status(records)
+    else:
+        analysis = {'followers': [], 'mutual': [], 'fans': []}
+
+    # Get comparison if we have multiple snapshots
+    comparison = None
+    follower_snapshots = [s for s in snapshots if s.get('snapshot_type') == 'followers']
+    if len(follower_snapshots) >= 2:
+        prev_id = follower_snapshots[-2]['id']
+        curr_id = follower_snapshots[-1]['id']
+        comparison = await compare_snapshots(prev_id, curr_id)
+
+    # Create dashboard
+    dashboard_buf = create_summary_dashboard(follower_snapshots, analysis, comparison)
+
+    file = discord.File(dashboard_buf, filename="dashboard.png")
+
+    embed = discord.Embed(
+        title="📊 Your Instagram Follower Dashboard",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="attachment://dashboard.png")
+    embed.set_footer(text=f"Based on {len(snapshots)} upload(s)")
+
+    await interaction.followup.send(embed=embed, file=file)
+
+
+@bot.tree.command(name="trend", description="View your follower count trend over time")
+async def trend(interaction: discord.Interaction):
+    """Show follower trend plot."""
+    await interaction.response.defer(thinking=True)
+
+    snapshots = await get_all_snapshots_for_plotting(
+        interaction.user.id,
+        interaction.guild_id
+    )
+
+    follower_snapshots = [s for s in snapshots if s.get('snapshot_type', 'followers') == 'followers']
+
+    if not follower_snapshots:
+        await interaction.followup.send(
+            "❌ No follower data found! Upload a CSV file first using `/upload`"
+        )
+        return
+
+    plot_buf = create_follower_trend_plot(follower_snapshots)
+    file = discord.File(plot_buf, filename="trend.png")
+
+    embed = discord.Embed(
+        title="📈 Follower Count Trend",
+        description=f"Showing data from {len(follower_snapshots)} upload(s)",
+        color=discord.Color.blurple()
+    )
+    embed.set_image(url="attachment://trend.png")
+
+    await interaction.followup.send(embed=embed, file=file)
+
+
+@bot.tree.command(name="growth", description="View your follower growth rate")
+async def growth(interaction: discord.Interaction):
+    """Show growth rate between uploads."""
+    await interaction.response.defer(thinking=True)
+
+    snapshots = await get_all_snapshots_for_plotting(
+        interaction.user.id,
+        interaction.guild_id
+    )
+
+    follower_snapshots = [s for s in snapshots if s.get('snapshot_type', 'followers') == 'followers']
+
+    if len(follower_snapshots) < 2:
+        await interaction.followup.send(
+            "❌ Need at least 2 uploads to show growth rate. Upload more data!"
+        )
+        return
+
+    plot_buf = create_growth_rate_plot(follower_snapshots)
+    file = discord.File(plot_buf, filename="growth.png")
+
+    embed = discord.Embed(
+        title="📈 Follower Growth Rate",
+        description="Percentage change between each upload",
+        color=discord.Color.green()
+    )
+    embed.set_image(url="attachment://growth.png")
+
+    await interaction.followup.send(embed=embed, file=file)
+
+
+@bot.tree.command(name="nonfollowers", description="See who doesn't follow you back")
+@app_commands.describe(limit="Maximum number of results to show (default: 20)")
+async def non_followers(interaction: discord.Interaction, limit: int = 20):
+    """Show people you follow who don't follow you back."""
+    await interaction.response.defer(thinking=True)
+
+    # Get followers data
+    followers_snapshot = await get_latest_snapshot(
+        interaction.user.id,
+        interaction.guild_id,
+        "followers"
+    )
+
+    if not followers_snapshot:
+        await interaction.followup.send(
+            "❌ No follower data found! Upload your followers CSV first using `/upload`"
+        )
+        return
+
+    records = await get_snapshot_records(followers_snapshot['id'])
+
+    # Filter those with "Followed by you" = YES in followers list
+    # These are mutual follows - we want to find who you follow that doesn't follow back
+    analysis = analyze_follow_status(records)
+
+    # In followers list, people with "NO" are fans (they follow you, you don't follow them)
+    # This command should show the opposite - you need following.csv for complete picture
+    # For now, show fans (people you might want to follow back)
+
+    fans = analysis['fans']  # People following you that you don't follow back
+
+    if not fans:
+        embed = discord.Embed(
+            title="✨ Perfect!",
+            description="Everyone who follows you is followed back by you!",
+            color=discord.Color.green()
+        )
+        await interaction.followup.send(embed=embed)
+        return
+
+    # Paginate results
+    fans = fans[:limit]
+
+    embed = discord.Embed(
+        title="👀 People Following You (Not Followed Back)",
+        description=f"These {len(fans)} people follow you but you don't follow them back",
+        color=discord.Color.orange()
+    )
+
+    # Create list of usernames
+    user_list = []
+    for i, record in enumerate(fans, 1):
+        username = record['username']
+        fullname = record['fullname']
+        verified = "✅" if record['is_verified'] == 'YES' else ""
+        user_list.append(f"{i}. @{username} {verified}")
+        if fullname:
+            user_list[-1] += f" ({fullname})"
+
+    # Split into chunks if too long
+    chunk_size = 10
+    for i in range(0, len(user_list), chunk_size):
+        chunk = user_list[i:i + chunk_size]
+        field_name = f"Users {i + 1}-{min(i + chunk_size, len(user_list))}"
+        embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
+
+    total_fans = len(analysis['fans'])
+    if total_fans > limit:
+        embed.set_footer(text=f"Showing {limit} of {total_fans} total. Use /nonfollowers limit:50 to see more")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="changes", description="View detailed changes from your last upload")
+async def changes(interaction: discord.Interaction):
+    """Show detailed comparison with previous upload."""
+    await interaction.response.defer(thinking=True)
+
+    snapshots = await get_snapshots(interaction.user.id, interaction.guild_id, limit=2)
+
+    if len(snapshots) < 2:
+        await interaction.followup.send(
+            "❌ Need at least 2 uploads to compare changes. Upload more data!"
+        )
+        return
+
+    # snapshots are ordered DESC, so [0] is newest, [1] is previous
+    comparison = await compare_snapshots(snapshots[1]['id'], snapshots[0]['id'])
+
+    # Create change chart
+    chart_buf = create_change_bar_chart(comparison)
+    file = discord.File(chart_buf, filename="changes.png")
+
+    embed = discord.Embed(
+        title="📊 Follower Changes",
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="📈 Summary",
+        value=(
+            f"Previous: **{comparison['old_total']}** followers\n"
+            f"Current: **{comparison['new_total']}** followers\n"
+            f"Net Change: **{comparison['net_change']:+d}**"
+        ),
+        inline=False
+    )
+
+    if comparison['gained']:
+        gained_list = [f"@{r['username']}" for r in comparison['gained'][:10]]
+        gained_text = "\n".join(gained_list)
+        if len(comparison['gained']) > 10:
+            gained_text += f"\n... and {len(comparison['gained']) - 10} more"
+        embed.add_field(
+            name=f"🆕 New Followers (+{comparison['gained_count']})",
+            value=gained_text or "None",
+            inline=True
+        )
+
+    if comparison['lost']:
+        lost_list = [f"@{r['username']}" for r in comparison['lost'][:10]]
+        lost_text = "\n".join(lost_list)
+        if len(comparison['lost']) > 10:
+            lost_text += f"\n... and {len(comparison['lost']) - 10} more"
+        embed.add_field(
+            name=f"👋 Unfollowed (-{comparison['lost_count']})",
+            value=lost_text or "None",
+            inline=True
+        )
+
+    embed.set_image(url="attachment://changes.png")
+
+    await interaction.followup.send(embed=embed, file=file)
+
+
+@bot.tree.command(name="history", description="View your upload history")
+async def history(interaction: discord.Interaction):
+    """Show upload history."""
+    await interaction.response.defer(thinking=True)
+
+    snapshots = await get_snapshots(interaction.user.id, interaction.guild_id, limit=10)
+
+    if not snapshots:
+        await interaction.followup.send(
+            "❌ No uploads found! Start by uploading a CSV file using `/upload`"
+        )
+        return
+
+    embed = discord.Embed(
+        title="📜 Your Upload History",
+        color=discord.Color.blurple()
+    )
+
+    for snapshot in snapshots:
+        uploaded_at = snapshot['uploaded_at']
+        if isinstance(uploaded_at, str):
+            # Format the date nicely
+            from datetime import datetime
+            dt = datetime.fromisoformat(uploaded_at.replace('Z', '+00:00'))
+            date_str = dt.strftime("%b %d, %Y at %H:%M")
+        else:
+            date_str = str(uploaded_at)
+
+        embed.add_field(
+            name=f"#{snapshot['id']} - {snapshot['snapshot_type'].title()}",
+            value=(
+                f"📅 {date_str}\n"
+                f"📁 {snapshot['filename']}\n"
+                f"👥 {snapshot['total_followers']} records"
+            ),
+            inline=True
+        )
+
+    embed.set_footer(text="Use /changes to see differences between uploads")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="breakdown", description="See your follower relationship breakdown")
+async def breakdown(interaction: discord.Interaction):
+    """Show pie chart of follow relationships."""
+    await interaction.response.defer(thinking=True)
+
+    latest = await get_latest_snapshot(
+        interaction.user.id,
+        interaction.guild_id,
+        "followers"
+    )
+
+    if not latest:
+        await interaction.followup.send(
+            "❌ No data found! Upload a CSV file first using `/upload`"
+        )
+        return
+
+    records = await get_snapshot_records(latest['id'])
+    analysis = analyze_follow_status(records)
+
+    mutual = len(analysis['mutual'])
+    fans = len(analysis['fans'])
+
+    chart_buf = create_comparison_pie_chart(mutual, fans, 0)
+    file = discord.File(chart_buf, filename="breakdown.png")
+
+    embed = discord.Embed(
+        title="🥧 Follow Relationship Breakdown",
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(name="🤝 Mutual", value=f"{mutual} accounts", inline=True)
+    embed.add_field(name="👀 Fans", value=f"{fans} accounts", inline=True)
+    embed.add_field(name="📊 Total", value=f"{mutual + fans} followers", inline=True)
+
+    embed.set_image(url="attachment://breakdown.png")
+
+    await interaction.followup.send(embed=embed, file=file)
+
+
+@bot.tree.command(name="search", description="Search for a specific user in your data")
+@app_commands.describe(username="Instagram username to search for")
+async def search_user(interaction: discord.Interaction, username: str):
+    """Search for a user in follower data."""
+    await interaction.response.defer(thinking=True)
+
+    latest = await get_latest_snapshot(
+        interaction.user.id,
+        interaction.guild_id,
+        "followers"
+    )
+
+    if not latest:
+        await interaction.followup.send(
+            "❌ No data found! Upload a CSV file first using `/upload`"
+        )
+        return
+
+    records = await get_snapshot_records(latest['id'])
+
+    # Search for username (case-insensitive partial match)
+    search_lower = username.lower()
+    matches = [
+        r for r in records
+        if search_lower in r['username'].lower() or search_lower in r['fullname'].lower()
+    ]
+
+    if not matches:
+        await interaction.followup.send(f"❌ No user found matching `{username}`")
+        return
+
+    embed = discord.Embed(
+        title=f"🔍 Search Results for '{username}'",
+        description=f"Found {len(matches)} match(es)",
+        color=discord.Color.blurple()
+    )
+
+    for match in matches[:10]:
+        verified = "✅" if match['is_verified'] == 'YES' else ""
+        follows_back = "✅ You follow back" if match['followed_by_you'] == 'YES' else "❌ You don't follow back"
+
+        embed.add_field(
+            name=f"@{match['username']} {verified}",
+            value=(
+                f"**Name:** {match['fullname'] or 'N/A'}\n"
+                f"**Status:** {follows_back}\n"
+                f"[View Profile]({match['profile_url']})"
+            ),
+            inline=True
+        )
+
+    if len(matches) > 10:
+        embed.set_footer(text=f"Showing 10 of {len(matches)} results")
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="help", description="Show all available commands")
+async def help_command(interaction: discord.Interaction):
+    """Show help information."""
+    embed = discord.Embed(
+        title="📚 Instagram Follower Tracker - Help",
+        description="Track your Instagram followers and following with CSV uploads!",
+        color=discord.Color.blurple()
+    )
+
+    commands_list = [
+        ("📤 /upload", "Upload your Instagram CSV file (followers or following)"),
+        ("📊 /stats", "View your comprehensive dashboard with all statistics"),
+        ("📈 /trend", "See your follower count trend over time"),
+        ("📉 /growth", "View growth rate between uploads"),
+        ("🔄 /changes", "See detailed changes from your last upload"),
+        ("👀 /nonfollowers", "See people following you that you don't follow back"),
+        ("🥧 /breakdown", "View pie chart of follow relationships"),
+        ("📜 /history", "View your upload history"),
+        ("🔍 /search", "Search for a specific username"),
+    ]
+
+    for cmd, desc in commands_list:
+        embed.add_field(name=cmd, value=desc, inline=False)
+
+    embed.add_field(
+        name="📝 How to Get Your Data",
+        value=(
+            "1. Go to Instagram → Settings → Your Activity\n"
+            "2. Download your data as CSV\n"
+            "3. Upload the followers/following CSV here!"
+        ),
+        inline=False
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+
+def main():
+    """Run the bot."""
+    if not TOKEN:
+        print("Error: DISCORD_TOKEN not found in environment variables!")
+        print("Create a .env file with: DISCORD_TOKEN=your_token_here")
+        return
+
+    bot.run(TOKEN)
+
+
+if __name__ == '__main__':
+    main()
