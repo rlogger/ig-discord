@@ -1,43 +1,37 @@
-# Instagram Follower Tracker Discord Bot
+# IG-tribbles (dribbles) 
 
-A Discord bot that helps you track your Instagram followers and following over time using CSV exports.
+A Discord bot that tracks your Instagram followers and following over time using CSV exports.
 
 ## Features
 
-- **DM Support**: Chat directly with the bot in DMs - just drop your CSV file!
-- **Auto-Detection**: Simply upload a CSV and the bot automatically processes it
-- **CSV Upload**: Upload your Instagram followers/following CSV exports
-- **Change Tracking**: See who followed/unfollowed you between uploads
-- **Visualizations**: Beautiful plots showing trends, growth rates, and relationship breakdowns
-- **Historical Data**: Keep a record of all your uploads
-- **Search**: Find specific users in your data
+- DM support and auto-detection of CSV uploads
+- Track who followed/unfollowed you between uploads
+- Visualizations of trends, growth rates, and relationships
+- Search for specific users in your data
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/upload` | Upload your Instagram CSV file (followers or following) |
-| `/stats` | View your comprehensive dashboard with all statistics |
-| `/trend` | See your follower count trend over time |
+| `/upload` | Upload your Instagram CSV file |
+| `/stats` | View your dashboard |
+| `/trend` | See follower count trend |
 | `/growth` | View growth rate between uploads |
-| `/changes` | See detailed changes from your last upload |
-| `/nonfollowers` | See people following you that you don't follow back |
-| `/breakdown` | View pie chart of follow relationships |
-| `/history` | View your upload history |
-| `/search` | Search for a specific username |
-| `/help` | Show all available commands |
+| `/changes` | See changes from last upload |
+| `/nonfollowers` | See people you don't follow back |
+| `/breakdown` | View pie chart of relationships |
+| `/history` | View upload history |
+| `/search` | Search for a username |
 
 ## Setup
 
-### 1. Create a Discord Bot
+### 1. Create Discord Bot
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Click "New Application" and give it a name
-3. Go to "Bot" section and click "Add Bot"
-4. Copy the bot token
-5. Enable "Message Content Intent" under Privileged Gateway Intents
+2. Create new application → Add Bot → Copy token
+3. Enable "Message Content Intent"
 
-### 2. Invite the Bot
+### 2. Invite Bot
 
 1. Go to OAuth2 → URL Generator
 2. Select scopes: `bot`, `applications.commands`
@@ -129,26 +123,24 @@ python bot.py
 
 ## Deployment
 
-### Local with Docker
+1. Instagram → Settings → Your Activity → Download Your Information
+2. Select "Followers and following" → Format: **CSV**
+3. Upload the CSV to the bot
 
+## Usage
 ```bash
-# Build and run
-docker-compose up -d
+# With nix-shell
+nix-shell
+bot
 
-# View logs
+# With Docker
+docker-compose up -d
 docker-compose logs -f
 ```
 
-### Google Cloud Platform
-
-See [DEPLOY_GCP.md](DEPLOY_GCP.md) for detailed instructions on deploying to:
-- Google Compute Engine (recommended, free tier eligible)
-- Cloud Run (managed, always-on)
-- Google Kubernetes Engine (for complex setups)
-
 ## Data Storage
 
-All data is stored locally in `follower_data.db` (SQLite). Each user's data is isolated by their Discord user ID and server ID.
+All data stored in `follower_data.db` (SQLite), isolated per user.
 
 ## License
 
