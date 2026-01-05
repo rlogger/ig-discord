@@ -44,24 +44,9 @@ A Discord bot that helps you track your Instagram followers and following over t
 3. Select permissions: `Send Messages`, `Attach Files`, `Embed Links`, `Use Slash Commands`
 4. Copy the generated URL and open it to invite the bot
 
-### 3. Install Dependencies
+### 3. Install & Run
 
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure Environment
-
-```bash
-cp .env.example .env
-# Edit .env and add your Discord bot token
-```
-
-### 5. Run the Bot
-
-```bash
-python bot.py
-```
+See [Development Setup](#development-setup) below for nix-shell or manual installation.
 
 ## How to Export Instagram Data
 
@@ -90,11 +75,56 @@ ig-discord/
 ├── csv_parser.py    # CSV parsing utilities
 ├── plotting.py      # Matplotlib visualizations
 ├── requirements.txt # Python dependencies
+├── shell.nix        # Nix development environment
 ├── Dockerfile       # Container configuration
 ├── docker-compose.yml # Local Docker deployment
 ├── DEPLOY_GCP.md    # GCP deployment guide
 ├── .env.example     # Environment template
 └── README.md        # This file
+```
+
+## Development Setup
+
+### Option 1: Nix Shell (Recommended)
+
+If you have [Nix](https://nixos.org/download.html) installed:
+
+```bash
+# Enter the development environment
+nix-shell
+
+# Everything is ready! Run the bot:
+bot   # or: python bot.py
+```
+
+The nix shell includes:
+- Python 3.11 with all dependencies
+- Neovim with custom config (auto-downloaded)
+- Docker & docker-compose
+- Git tools (lazygit, etc.)
+
+**Aliases available in nix-shell:**
+```bash
+bot       # Run the Discord bot
+nvim      # Neovim with custom config
+lg        # LazyGit
+dcup      # docker-compose up -d
+dcdown    # docker-compose down
+dclogs    # docker-compose logs -f
+```
+
+### Option 2: Manual Setup
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env and add your Discord bot token
+
+# Run the bot
+python bot.py
 ```
 
 ## Deployment
