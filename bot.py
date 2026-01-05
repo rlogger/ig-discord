@@ -480,7 +480,7 @@ async def upload_csv(
 
 
 @bot.tree.command(name="stats", description="View your follower statistics and trends")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def stats(interaction: discord.Interaction):
     """Show statistics and visualizations."""
     await interaction.response.defer(thinking=True)
@@ -534,7 +534,7 @@ async def stats(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="trend", description="View your follower count trend over time")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def trend(interaction: discord.Interaction):
     """Show follower trend plot."""
     await interaction.response.defer(thinking=True)
@@ -567,7 +567,7 @@ async def trend(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="growth", description="View your follower growth rate")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def growth(interaction: discord.Interaction):
     """Show growth rate between uploads."""
     await interaction.response.defer(thinking=True)
@@ -601,7 +601,7 @@ async def growth(interaction: discord.Interaction):
 
 @bot.tree.command(name="nonfollowers", description="See who doesn't follow you back")
 @app_commands.describe(limit="Maximum number of results to show (default: 20)")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def non_followers(interaction: discord.Interaction, limit: int = 20):
     """Show people you follow who don't follow you back."""
     await interaction.response.defer(thinking=True)
@@ -676,7 +676,7 @@ async def non_followers(interaction: discord.Interaction, limit: int = 20):
 
 
 @bot.tree.command(name="changes", description="View detailed changes from your last upload")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def changes(interaction: discord.Interaction):
     """Show detailed comparison with previous upload."""
     await interaction.response.defer(thinking=True)
@@ -740,7 +740,7 @@ async def changes(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="history", description="View your upload history")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def history(interaction: discord.Interaction):
     """Show upload history."""
     await interaction.response.defer(thinking=True)
@@ -785,7 +785,7 @@ async def history(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="breakdown", description="See your follower relationship breakdown")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def breakdown(interaction: discord.Interaction):
     """Show pie chart of follow relationships."""
     await interaction.response.defer(thinking=True)
@@ -828,7 +828,7 @@ async def breakdown(interaction: discord.Interaction):
 
 @bot.tree.command(name="search", description="Search for a specific user in your data")
 @app_commands.describe(username="Instagram username to search for")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def search_user(interaction: discord.Interaction, username: str):
     """Search for a user in follower data."""
     await interaction.response.defer(thinking=True)
@@ -886,7 +886,7 @@ async def search_user(interaction: discord.Interaction, username: str):
 
 
 @bot.tree.command(name="demo", description="Load sample data to try out the bot")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def demo(interaction: discord.Interaction):
     """Load the sample CSV file to demonstrate bot features."""
     await interaction.response.defer(thinking=True)
@@ -959,7 +959,7 @@ async def demo(interaction: discord.Interaction):
 # ============================================================================
 
 @bot.tree.command(name="requested", description="View your pending follow requests list")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def requested_list(interaction: discord.Interaction):
     """Show the list of people you've requested to follow."""
     await interaction.response.defer(thinking=True)
@@ -1002,7 +1002,7 @@ async def requested_list(interaction: discord.Interaction):
 
 @bot.tree.command(name="requested_add", description="Add usernames to your pending requests list")
 @app_commands.describe(usernames="Usernames separated by newlines, commas, or spaces")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def requested_add_cmd(interaction: discord.Interaction, usernames: str):
     """Add usernames to the requested list."""
     await interaction.response.defer(thinking=True)
@@ -1044,7 +1044,7 @@ async def requested_add_cmd(interaction: discord.Interaction, usernames: str):
 
 @bot.tree.command(name="requested_remove", description="Remove usernames from your pending requests list")
 @app_commands.describe(usernames="Usernames to remove (separated by newlines, commas, or spaces)")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def requested_remove_cmd(interaction: discord.Interaction, usernames: str):
     """Remove usernames from the requested list."""
     await interaction.response.defer(thinking=True)
@@ -1074,7 +1074,7 @@ async def requested_remove_cmd(interaction: discord.Interaction, usernames: str)
 
 
 @bot.tree.command(name="requested_clear", description="Clear your entire pending requests list")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def requested_clear_cmd(interaction: discord.Interaction):
     """Clear all requested usernames."""
     guild_id = get_guild_id(interaction)
@@ -1131,7 +1131,7 @@ async def requested_clear_cmd(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="requested_check", description="Check which requested users have accepted your follow")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def requested_check_cmd(interaction: discord.Interaction):
     """Check if any requested users have accepted and now follow you back."""
     await interaction.response.defer(thinking=True)
@@ -1177,7 +1177,7 @@ async def requested_check_cmd(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="help", description="Show all available commands")
-@app_commands.dm_permission(True)
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 async def help_command(interaction: discord.Interaction):
     """Show help information."""
     embed = discord.Embed(
