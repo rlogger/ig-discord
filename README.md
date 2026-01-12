@@ -1,14 +1,6 @@
 # IG-tribbles (dribbles)
 
-A Discord bot to track your Instagram followers, see who unfollowed you, and manage pending follow requests.
-
-## Features
-
-- **Drop & Go**: Just drop your CSV file in DMs - no commands needed
-- **Change Tracking**: See who followed/unfollowed between uploads
-- **Visualizations**: Trend charts, pie charts, growth rates
-- **Requested Tracking**: Keep track of pending follow requests
-- **Search**: Find specific users in your data
+A Discord bot to track your followers
 
 ## Quick Start
 
@@ -49,7 +41,6 @@ python bot.py
 | `/requested_clear` | Clear entire list |
 
 ### DM Commands
-Just message the bot directly:
 - Drop a CSV file (auto-processed)
 - `stats` / `changes` / `history`
 - `hi` or `help` for instructions
@@ -127,7 +118,3 @@ ig-discord/
 ├── requirements.txt
 └── .env.example
 ```
-
-## License
-
-MIT
