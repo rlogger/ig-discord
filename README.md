@@ -1,6 +1,6 @@
 # IG-tribbles (dribbles)
 
-A Discord bot to check your instagram 
+A Discord bot to check your Instagram 
 
 ## Quick Start
 
